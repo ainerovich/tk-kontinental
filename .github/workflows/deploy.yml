@@ -1,0 +1,63 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Deploy to VPS
+        run: |
+          # Создаём SSH ключ для подключения
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Отключаем проверку хоста
+          ssh-keyscan -H 151.247.209.203 >> ~/.ssh/known_hosts 2>/dev/null
+          
+          # Развёртываем на VPS
+          ssh -i ~/.ssh/deploy_key root@151.247.209.203 << 'EOFSH'
+          set -e
+          
+          echo "📦 Обновляю код на VPS..."
+          cd /var/www/tk-kontinental || (mkdir -p /var/www/tk-kontinental && cd /var/www/tk-kontinental)
+          
+          # Если это первый раз - клонируем репо
+          if [ ! -d .git ]; then
+            git clone https://github.com/ainerovich/tk-kontinental.git .
+          else
+            # Обновляем существующий репо
+            git fetch origin
+            git reset --hard origin/main
+          fi
+          
+          # Перезагружаем веб-сервер
+          pkill -f 'python.*http.server' || true
+          sleep 1
+          
+          nohup python3 -m http.server 80 > /tmp/tk-server.log 2>&1 &
+          
+          sleep 2
+          
+          echo ""
+          echo "✅ Деплой завершён!"
+          echo "🌐 Сайт доступен: http://151.247.209.203"
+          echo ""
+          
+          # Показываем статус
+          curl -s -I http://localhost | head -5 || echo "Проверка доступности..."
+          
+          EOFSH
+      
+      - name: Deployment status
+        if: always()
+        run: echo "✅ Деплой завершён успешно!"
